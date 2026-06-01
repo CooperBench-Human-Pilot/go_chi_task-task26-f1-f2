@@ -464,15 +464,7 @@ func (mx *Mux) routeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, _, h := mx.tree.FindRoute(rctx, method, routePath); h != nil {
 		start := time.Now()
 		h.ServeHTTP(w, r)
-		if mx.metricsCollector != nil {
-			mx.metricsCollector.RecordHit(r.Context(), r, RouteMetric{
-				Pattern:   rctx.RoutePattern(),
-				Method:    rctx.RouteMethod,
-				Path:      routePath,
-				Duration:  time.Since(start),
-				URLParams: rctx.URLParams,
-			})
-		}
+		mx.recordMetric(rctx, r, routePath, start)
 		return
 	}
 	if rctx.methodNotAllowed {
@@ -480,6 +472,19 @@ func (mx *Mux) routeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		mx.NotFoundHandler().ServeHTTP(w, r)
 	}
+}
+
+func (mx *Mux) recordMetric(rctx *Context, r *http.Request, routePath string, start time.Time) {
+	if mx.metricsCollector == nil {
+		return
+	}
+	mx.metricsCollector.RecordHit(r.Context(), r, RouteMetric{
+		Pattern:   rctx.RoutePattern(),
+		Method:    rctx.RouteMethod,
+		Path:      routePath,
+		Duration:  time.Since(start),
+		URLParams: rctx.URLParams,
+	})
 }
 
 func (mx *Mux) nextRoutePath(rctx *Context) string {
