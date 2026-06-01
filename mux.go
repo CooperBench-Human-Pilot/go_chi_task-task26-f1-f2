@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 var _ Router = &Mux{}
@@ -45,6 +46,9 @@ type Mux struct {
 	// Controls the behaviour of middleware chain generation when a mux
 	// is registered as an inline group inside another mux.
 	inline bool
+
+	// Optional metrics collector for route hit monitoring.
+	metricsCollector MetricsCollector
 }
 
 // NewMux returns a newly initialized Mux object that implements the Router
@@ -57,8 +61,12 @@ func NewMux() *Mux {
 	return mux
 }
 
-// ServeHTTP is the single method of the http.Handler interface that makes
-// Mux interoperable with the standard library. It uses a sync.Pool to get and
+// SetMetricsCollector sets the MetricsCollector used to record route hit metrics.
+func (mx *Mux) SetMetricsCollector(mc MetricsCollector) {
+	mx.metricsCollector = mc
+}
+
+// ServeHTTP is the single method of the http.Handler interface that makes// Mux interoperable with the standard library. It uses a sync.Pool to get and
 // reuse routing contexts for each request.
 func (mx *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Ensure the mux has some routes defined on the mux
@@ -454,7 +462,17 @@ func (mx *Mux) routeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Find the route
 	if _, _, h := mx.tree.FindRoute(rctx, method, routePath); h != nil {
+		start := time.Now()
 		h.ServeHTTP(w, r)
+		if mx.metricsCollector != nil {
+			mx.metricsCollector.RecordHit(r.Context(), r, RouteMetric{
+				Pattern:   rctx.RoutePattern(),
+				Method:    rctx.RouteMethod,
+				Path:      routePath,
+				Duration:  time.Since(start),
+				URLParams: rctx.URLParams,
+			})
+		}
 		return
 	}
 	if rctx.methodNotAllowed {
